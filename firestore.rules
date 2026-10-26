@@ -1,0 +1,57 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isMember(fid) {
+      return signedIn() && request.auth.uid in get(/databases/$(database)/documents/families/$(fid)).data.memberUids;
+    }
+
+    // Код приглашения -> id семьи. Читать по одному коду может любой вошедший.
+    match /codes/{code} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['familyId']);
+      allow update, delete: if false;
+    }
+
+    match /families/{fid} {
+      allow get: if signedIn() && request.auth.uid in resource.data.memberUids;
+      allow list: if false;
+      allow create: if signedIn()
+        && request.resource.data.memberUids == [request.auth.uid];
+      // Участник может менять семью; новый человек может только добавить себя.
+      allow update: if signedIn() && (
+        request.auth.uid in resource.data.memberUids
+        || (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberUids', 'members'])
+          && request.resource.data.memberUids.toSet() == resource.data.memberUids.toSet().union([request.auth.uid].toSet())
+        )
+      );
+      allow delete: if false;
+
+      // Записи: задачи, события, цели, покупки
+      match /items/{id} {
+        allow read: if isMember(fid)
+          && (resource.data.visibility != 'personal' || resource.data.ownerId == request.auth.uid);
+        allow create: if isMember(fid)
+          && request.resource.data.ownerId == request.auth.uid;
+        allow update: if isMember(fid)
+          && request.resource.data.ownerId == resource.data.ownerId
+          && (
+            resource.data.visibility == 'family'
+            || resource.data.ownerId == request.auth.uid
+            || resource.data.get('assigneeId', null) == request.auth.uid
+          );
+        allow delete: if isMember(fid)
+          && (resource.data.visibility == 'family' || resource.data.ownerId == request.auth.uid);
+      }
+
+      // Подписки на push — только свои
+      match /push/{uid} {
+        allow read, write: if isMember(fid) && uid == request.auth.uid;
+      }
+    }
+  }
+}
