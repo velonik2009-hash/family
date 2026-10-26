@@ -1,8 +1,8 @@
 // Сервис-воркер: офлайн-кэш оболочки приложения и push-уведомления.
-const CACHE = 'family-v1';
+const CACHE = 'family-v2';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
-  'js/app.js', 'js/store.js', 'js/model.js', 'js/sheets.js', 'js/alarm.js', 'js/config.js',
+  'js/app.js', 'js/store.js', 'js/model.js', 'js/sheets.js', 'js/alarm.js', 'js/config.js', 'js/extras.js',
   'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
 

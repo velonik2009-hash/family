@@ -16,6 +16,11 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Профиль пользователя: какая у него семья (для входа с нового устройства)
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
     match /families/{fid} {
       allow get: if signedIn() && request.auth.uid in resource.data.memberUids;
       allow list: if false;

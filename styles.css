@@ -14,10 +14,11 @@
   --radius: 14px;
   --safe-b: env(safe-area-inset-bottom, 0px);
   --safe-t: env(safe-area-inset-top, 0px);
-  color-scheme: light dark;
+  color-scheme: light;
+  --g1: #4d8def;
+  --g2: #7b61ff;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
+:root.dark {
     --bg: #0e0e11;
     --card: #1b1b20;
     --text: #f2f2f5;
@@ -28,7 +29,6 @@
     --chip: #2a2a31;
     --shadow: none;
   }
-}
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; background: var(--bg); color: var(--text); }
 body {
@@ -75,7 +75,7 @@ button { cursor: pointer; }
 .red { color: var(--danger) !important; }
 .badge { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 99px; background: var(--chip); color: var(--muted); }
 .badge.alarm { background: #ffe8e8; color: var(--danger); }
-@media (prefers-color-scheme: dark) { .badge.alarm { background: #3b1d1f; } }
+:root.dark .badge.alarm { background: #3b1d1f; }
 
 .check { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--muted); background: none; flex: none; display: grid; place-items: center; color: #fff; font-size: 15px; padding: 0; }
 .check.on { background: var(--ok); border-color: var(--ok); }
@@ -118,7 +118,7 @@ button { cursor: pointer; }
 .wi .ck { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--muted); float: left; margin: 1px 4px 0 0; display: grid; place-items: center; font-size: 9px; background: none; padding: 0; }
 .wi.done .ck { background: var(--ok); border-color: var(--ok); color: #fff; }
 .wi.alarm { background: #ffe8e8; }
-@media (prefers-color-scheme: dark) { .wi.alarm { background: #3b1d1f; } }
+:root.dark .wi.alarm { background: #3b1d1f; }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin: 10px 2px; }
 
 /* ---------- месяц ---------- */
@@ -205,3 +205,48 @@ button { cursor: pointer; }
 .welcome h1 { margin: 12px 0 6px; }
 .welcome p { color: var(--muted); margin: 0 0 18px; }
 .code { font: 600 28px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .2em; text-align: center; padding: 14px; }
+
+:root.dark { color-scheme: dark; }
+
+/* ---------- карточка «Сегодня» ---------- */
+.hero { margin: 0 -4px 14px; border-radius: 22px; padding: 14px 16px 18px; color: #fff;
+  background: linear-gradient(135deg, var(--g1), var(--g2)); background-size: cover; background-position: center;
+  box-shadow: 0 10px 30px -12px color-mix(in srgb, var(--g2) 70%, transparent); position: relative; overflow: hidden; }
+.hero::after { content: ''; position: absolute; right: -60px; top: -60px; width: 200px; height: 200px; border-radius: 50%; background: rgba(255,255,255,.12); pointer-events: none; }
+.hero.with-photo::after { display: none; }
+.hero-top { display: flex; align-items: center; gap: 10px; position: relative; z-index: 1; }
+.hero-family { flex: 1; font-weight: 600; opacity: .9; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.iconbtn.glass { background: rgba(255,255,255,.22); color: #fff; box-shadow: none; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); font-size: 22px; }
+.hero-main { display: flex; align-items: center; gap: 14px; margin-top: 18px; position: relative; z-index: 1; }
+.hero-date { font-size: 14px; opacity: .85; text-transform: capitalize; }
+.hero-title { font-size: 27px; line-height: 1.15; margin: 4px 0 6px; letter-spacing: -.02em; overflow-wrap: anywhere; }
+.hero-sub { font-size: 15px; opacity: .92; }
+.ring { flex: none; filter: drop-shadow(0 2px 6px rgba(0,0,0,.15)); }
+
+/* ---------- конфетти ---------- */
+.confetti { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 200; }
+
+/* ---------- доска ---------- */
+.notes { columns: 2 160px; column-gap: 10px; }
+.note { break-inside: avoid; border-radius: 16px; padding: 12px 14px; margin-bottom: 10px; position: relative; cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 6px 16px -10px rgba(0,0,0,.25); transition: transform .15s; }
+.note:active { transform: scale(.98); }
+.note.pinned { outline: 2px solid rgba(0,0,0,.08); }
+.note .pin { position: absolute; top: -6px; right: 8px; font-size: 18px; }
+.note-title { display: block; margin-bottom: 4px; }
+.note-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; }
+.note-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; opacity: .75; margin-top: 10px; }
+.poll-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px 6px; }
+.poll-head .link { border: 0; background: none; color: var(--muted); font-size: 20px; padding: 0 4px; }
+.poll-opts { display: flex; flex-direction: column; gap: 8px; padding: 6px 14px 10px; }
+.poll-opt { position: relative; display: flex; align-items: center; gap: 8px; border: 1.5px solid var(--line); background: var(--card);
+  border-radius: 12px; padding: 10px 12px; overflow: hidden; text-align: left; }
+.poll-opt.mine { border-color: var(--accent); }
+.poll-opt:disabled { opacity: .85; cursor: default; }
+.poll-bar { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent-soft); transition: width .4s ease; }
+.poll-label, .poll-opt .avs, .poll-pct { position: relative; }
+.poll-label { flex: 1; }
+.poll-pct { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
+
+/* шесть вкладок — чуть компактнее */
+.tab { font-size: 10.5px; }
