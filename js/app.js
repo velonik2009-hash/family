@@ -2,6 +2,7 @@ import { createStore } from './store.js';
 import { vapidPublicKey } from './config.js';
 import * as M from './model.js';
 import { Alarm } from './alarm.js';
+import * as X from './extras.js';
 
 const { esc } = M;
 const root = document.getElementById('root');
@@ -73,6 +74,23 @@ export async function toggleTask(t) {
   } else {
     await S.store.updateItem(t.id, { done: !t.done, doneAt: !t.done ? Date.now() : null, snoozedUntil: null });
   }
+  if (!t.done) celebrate();
+}
+
+// Конфетти за выполненную задачу и салют, если сделано всё на сегодня
+function celebrate() {
+  const { total, done } = todayProgress('mine');
+  if (total > 0 && done >= total) { X.confetti(true); toast('Все дела на сегодня сделаны! 🎉'); }
+  else X.confetti(false);
+}
+
+// Прогресс дня: задачи со сроком сегодня (+ просроченные) и выполненные сегодня
+function todayProgress(scope = S.scope) {
+  const today = new Date();
+  const list = tasks().filter((t) => (scope === 'mine' ? M.isMine(t, S.me) : t.visibility !== 'personal'));
+  const open = list.filter((t) => !t.done && t.due && (M.sameDay(t.due, today) || M.isOverdue(t))).length;
+  const done = list.filter((t) => t.doneAt && M.sameDay(t.doneAt, today)).length;
+  return { total: open + done, done };
 }
 
 async function snoozeTask(t, minutes) {
@@ -92,6 +110,7 @@ function taskRow(t, { showGoal = true } = {}) {
       <div class="meta">
         ${t.due ? `<span class="${M.isOverdue(t) ? 'red' : ''}">🕑 ${esc(M.dueText(t))}</span>` : ''}
         ${t.repeat && t.repeat !== 'none' ? '<span>🔁</span>' : ''}
+        ${t.photo ? '<span>📷</span>' : ''}
         ${t.important ? `<span class="badge alarm">⏰ ${t.nagEvery ? 'каждые ' + t.nagEvery + ' мин' : 'будильник'}</span>` : ''}
         ${showGoal && goal ? `<span>🎯 ${esc(goal.title)}</span>` : ''}
         ${visIcon(t.visibility)}
@@ -184,7 +203,25 @@ function viewToday() {
   const shopLeft = byType('shop').filter((s) => !s.bought).length;
   const done = scopeTasks(tasks()).filter((t) => t.doneAt && M.sameDay(t.doneAt, today)).length;
 
-  return topbar(`${greet}${name ? ', ' + esc(name) : ''}`, esc(M.fmtWeekday(today)) + ', ' + esc(M.fmtDay(today)))
+  const prog = todayProgress();
+  const pct = prog.total ? prog.done / prog.total : 0;
+  const photo = S.family?.photo;
+  const hero = `<div class="hero ${photo ? 'with-photo' : ''}" ${photo ? `style="background-image:linear-gradient(180deg,rgba(0,0,0,.15),rgba(0,0,0,.55)),url('${photo}')"` : ''}>
+      <div class="hero-top">
+        <button class="iconbtn glass" data-act="family" aria-label="Семья">${meMember() ? avatar(meMember()) : '👤'}</button>
+        <span class="hero-family">${esc(S.family?.name || '')}</span>
+        <button class="iconbtn glass" data-act="add" aria-label="Добавить">＋</button>
+      </div>
+      <div class="hero-main">
+        <div style="flex:1;min-width:0">
+          <div class="hero-date">${esc(M.fmtWeekday(today))}, ${esc(M.fmtDay(today))}</div>
+          <h1 class="hero-title">${greet}${name ? ', ' + esc(name) : ''}</h1>
+          <div class="hero-sub">${prog.total ? (prog.done >= prog.total ? 'Все дела на сегодня сделаны 🎉' : `Сделано ${prog.done} из ${prog.total} ${X.plural(prog.total, 'дела', 'дел', 'дел')}`) : 'На сегодня дел нет — отдыхайте ☀️'}</div>
+        </div>
+        ${X.ring(pct)}
+      </div>
+    </div>`;
+  return hero
     + banners()
     + seg('scope', [['mine', 'Моё'], ['family', 'Семья']], S.scope)
     + section('События сегодня')
@@ -316,6 +353,18 @@ function viewGoals() {
     + `<div style="margin-top:16px"><button class="btn ghost" data-act="new" data-v="goal">+ Новая цель</button></div>`;
 }
 
+function viewBoard() {
+  const xc = { me: S.me, member, avatar };
+  const notes = byType('note').sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (b.updatedAt || 0) - (a.updatedAt || 0));
+  const polls = byType('poll').sort((a, b) => (a.closed ? 1 : 0) - (b.closed ? 1 : 0) || (b.createdAt || 0) - (a.createdAt || 0));
+  return topbar('Доска', 'Объявления, заметки и голосования')
+    + `<div style="display:flex;gap:10px;margin-bottom:6px"><button class="btn ghost" data-act="new" data-v="note">📝 Заметка</button><button class="btn ghost" data-act="new" data-v="poll">🗳 Голосование</button></div>`
+    + (polls.length ? section('Голосования') + polls.map((p) => X.pollCard(p, xc)).join('<div style="height:10px"></div>') : '')
+    + section('Заметки')
+    + (notes.length ? `<div class="notes">${notes.map((n) => X.noteCard(n, xc)).join('')}</div>`
+      : card([], 'Здесь можно оставлять объявления для семьи: «купил билеты», код от домофона, телефон врача…'));
+}
+
 function viewShop() {
   const list = byType('shop');
   const toBuy = list.filter((s) => !s.bought).sort((a, b) => a.createdAt - b.createdAt);
@@ -340,7 +389,17 @@ function viewOnboarding() {
   const d = S.ob || (S.ob = { family: '', name: '', color: M.PALETTE[0], code: S.joinCode });
   const colors = `<div class="colors">${M.PALETTE.map((c) => `<button type="button" data-act="obcolor" data-v="${c}" class="${d.color === c ? 'on' : ''}" style="background:${c}"></button>`).join('')}</div>`;
   let body = '';
-  if (S.joinCode || S.onboarding === 'join') {
+  if (S.onboarding === 'login') {
+    body = `<div class="form">
+      <div class="group">
+        <div class="field"><input data-ob="email" type="email" autocomplete="username" placeholder="Почта" value="${esc(d.email || '')}"></div>
+        <div class="field"><input data-ob="pass" type="password" autocomplete="current-password" placeholder="Пароль"></div>
+      </div>
+      <button class="btn" data-act="oblogin">Войти</button>
+      <button class="btn ghost" data-act="obreset">Забыли пароль?</button>
+      <button class="btn ghost" data-act="obmode" data-v="start">Назад</button>
+    </div>`;
+  } else if (S.joinCode || S.onboarding === 'join') {
     body = `<div class="form">
       <div class="group">
         <div class="field"><input data-ob="code" placeholder="Код семьи" value="${esc(d.code)}" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:.1em"></div>
@@ -358,7 +417,8 @@ function viewOnboarding() {
         ${colors}
       </div>
       <button class="btn" data-act="obcreate">Создать семью</button>
-      ${cloud ? `<button class="btn ghost" data-act="obmode" data-v="join">У меня есть код приглашения</button>` : ''}
+      ${cloud ? `<button class="btn ghost" data-act="obmode" data-v="join">У меня есть код приглашения</button>
+      <button class="btn ghost" data-act="obmode" data-v="login">Войти по почте</button>` : ''}
     </div>`;
   }
   return `<div class="welcome"><img class="logo" src="icons/icon-192.png" alt=""><h1>Семейный ежедневник</h1>
@@ -373,6 +433,7 @@ const TABS = [
   ['tasks', '✅', 'Задачи'],
   ['goals', '🎯', 'Цели'],
   ['shop', '🛒', 'Покупки'],
+  ['board', '📌', 'Доска'],
 ];
 
 function render() {
@@ -382,7 +443,7 @@ function render() {
   if (!S.family) {
     html += viewOnboarding() + '</div>';
   } else {
-    html += ({ today: viewToday, week: viewWeek, tasks: viewTasks, goals: viewGoals, shop: viewShop }[S.tab] || viewToday)();
+    html += ({ today: viewToday, week: viewWeek, tasks: viewTasks, goals: viewGoals, shop: viewShop, board: viewBoard }[S.tab] || viewToday)();
     html += '</div>';
     html += `<nav class="tabs"><div class="inner">${TABS.map(([k, ic, l]) => `<button class="tab ${S.tab === k ? 'on' : ''}" data-act="tab" data-v="${k}"><span class="ic">${ic}</span>${l}</button>`).join('')}</div></nav>`;
   }
@@ -400,7 +461,15 @@ function render() {
 
 // ------------------------------------------------------------------ sheets (формы)
 
-import { Sheets } from './sheets.js';
+import { Sheets, authError } from './sheets.js';
+
+function sheetFor(item) {
+  if (item.type === 'event') return Sheets.event(ctx(), item);
+  if (item.type === 'note') return X.noteSheet(ctx(), item);
+  if (item.type === 'poll') return X.pollSheet(ctx(), item);
+  if (item.type === 'goal') return Sheets.goalDetail(ctx(), item);
+  return Sheets.task(ctx(), item);
+}
 
 function renderSheet() {
   let host = document.getElementById('sheet-host');
@@ -459,10 +528,20 @@ document.addEventListener('click', async (e) => {
     case 'tab': S.tab = v; writeLS('fp-tab', v); window.scrollTo(0, 0); render(); break;
     case 'seg': S[el.dataset.k] = v; render(); break;
     case 'toggle': e.stopPropagation(); if (item) await toggleTask(item); break;
-    case 'edit': if (item) openSheet(item.type === 'event' ? Sheets.event(ctx(), item) : Sheets.task(ctx(), item)); break;
+    case 'edit': if (item) openSheet(sheetFor(item)); break;
+    case 'vote': {
+      if (!item || item.closed) break;
+      const i = Number(v);
+      const votes = { ...(item.votes || {}) };
+      if (votes[S.me] === i) delete votes[S.me]; else votes[S.me] = i;
+      await S.store.updateItem(item.id, { votes });
+      break;
+    }
+    case 'photo': if (item?.photo) openSheet(X.photoSheet(item.photo, item.title)); break;
     case 'goal': if (item) openSheet(Sheets.goalDetail(ctx(), item)); break;
     case 'add': openSheet(Sheets.addMenu(ctx())); break;
-    case 'new': openSheet(v === 'goal' ? Sheets.goal(ctx(), null) : v === 'event' ? Sheets.event(ctx(), null) : Sheets.task(ctx(), null)); break;
+    case 'new': openSheet(v === 'goal' ? Sheets.goal(ctx(), null) : v === 'event' ? Sheets.event(ctx(), null)
+      : v === 'note' ? X.noteSheet(ctx(), null) : v === 'poll' ? X.pollSheet(ctx(), null) : Sheets.task(ctx(), null)); break;
     case 'family': openSheet(Sheets.family(ctx())); break;
     case 'week':
       S.weekStart = v === '0' ? M.startOfWeek(new Date()) : M.addDays(S.weekStart, 7 * Number(v));
@@ -491,6 +570,23 @@ document.addEventListener('click', async (e) => {
       try {
         await S.store.createFamily(S.ob.family.trim() || 'Наша семья', { name: S.ob.name.trim(), color: S.ob.color, emoji: '' });
       } catch (err) { console.error(err); toast('Не получилось: ' + err.message); el.disabled = false; }
+      break;
+    }
+    case 'oblogin': {
+      if (!(S.ob.email || '').includes('@') || !S.ob.pass) return toast('Введите почту и пароль');
+      el.disabled = true;
+      try {
+        const { uid } = await S.store.signInEmail(S.ob.email, S.ob.pass);
+        S.me = uid;
+        S.ob.pass = '';
+        if (!S.store.familyId) { toast('Вход выполнен. Создайте семью или присоединитесь по коду.'); S.onboarding = 'start'; render(); }
+      } catch (err) { console.error(err); toast(authError(err)); el.disabled = false; }
+      break;
+    }
+    case 'obreset': {
+      if (!(S.ob.email || '').includes('@')) return toast('Сначала введите почту');
+      try { await S.store.resetPassword(S.ob.email); toast('Письмо для сброса пароля отправлено на ' + S.ob.email); }
+      catch (err) { toast(authError(err)); }
       break;
     }
     case 'objoin': {
@@ -566,12 +662,13 @@ export async function enablePush() {
 // ------------------------------------------------------------------ context for sheets
 
 function ctx() {
-  return { S, M, store: S.store, me: S.me, members, member, avatar, toast, toggleTask, snoozeTask, openSheet, closeSheet, enablePush, render, isIOS, isStandalone };
+  return { S, M, X, store: S.store, me: S.me, members, member, avatar, toast, toggleTask, snoozeTask, openSheet, closeSheet, enablePush, render, isIOS, isStandalone };
 }
 
 // ------------------------------------------------------------------ boot
 
 async function boot() {
+  X.Theme.apply();
   S.store = createStore();
   try {
     const { uid } = await S.store.init();

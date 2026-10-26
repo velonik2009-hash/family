@@ -94,6 +94,11 @@ class LocalStore {
     this.persist();
   }
   async savePushSubscription() {}
+  get account() { return { anonymous: true, email: '', local: true }; }
+  async linkEmail() { throw new Error('Вход по почте работает только с подключённым облаком'); }
+  async signInEmail() { throw new Error('Вход по почте работает только с подключённым облаком'); }
+  async resetPassword() {}
+  async signOutAccount() { return { uid: this.uid }; }
   async leave() { safeDel('fp-local'); this.state = { family: null, items: {} }; this.emit(); }
 }
 
@@ -127,15 +132,77 @@ class FirebaseStore {
     } catch {
       this.db = this.fs.getFirestore(this.app);
     }
+    this.authLib = auth;
+    this.auth.languageCode = 'ru';
     await auth.setPersistence(this.auth, auth.browserLocalPersistence);
-    const user = await new Promise((resolve, reject) => {
-      const off = auth.onAuthStateChanged(this.auth, (u) => {
-        if (u) { off(); resolve(u); }
-      });
-      auth.signInAnonymously(this.auth).catch(reject);
-    });
-    this.uid = user.uid;
+    await this.auth.authStateReady();
+    // Анонимный вход — только если человек ещё ни разу не входил
+    if (!this.auth.currentUser) await auth.signInAnonymously(this.auth);
+    this.uid = this.auth.currentUser.uid;
+    if (!this._familyId) await this.restoreFamily();
     if (this._familyId) this.listen();
+    return { uid: this.uid };
+  }
+
+  // ---- Аккаунт по почте
+
+  get account() {
+    const u = this.auth?.currentUser;
+    return { anonymous: !u || u.isAnonymous, email: u?.email || '' };
+  }
+
+  async saveProfile() {
+    const { doc, setDoc } = this.fs;
+    if (!this._familyId) return;
+    await setDoc(doc(this.db, 'users', this.uid), { familyId: this._familyId, updatedAt: Date.now() }, { merge: true });
+  }
+
+  // Ищем семью пользователя (для входа с нового устройства)
+  async restoreFamily() {
+    const { doc, getDoc } = this.fs;
+    try {
+      const d = await getDoc(doc(this.db, 'users', this.uid));
+      if (d.exists() && d.data().familyId) {
+        this._familyId = d.data().familyId;
+        safeSet('fp-family', this._familyId);
+      }
+    } catch (e) { console.warn(e); }
+  }
+
+  // Превращаем текущий анонимный профиль в аккаунт с почтой (все данные сохраняются)
+  async linkEmail(email, password) {
+    const a = this.authLib;
+    const cred = a.EmailAuthProvider.credential(email.trim(), password);
+    await a.linkWithCredential(this.auth.currentUser, cred);
+    await this.saveProfile();
+  }
+
+  // Вход в существующий аккаунт на этом устройстве
+  async signInEmail(email, password) {
+    const a = this.authLib;
+    this.unsubs.forEach((u) => u());
+    this.unsubs = [];
+    await a.signInWithEmailAndPassword(this.auth, email.trim(), password);
+    this.uid = this.auth.currentUser.uid;
+    this._familyId = null;
+    safeDel('fp-family');
+    this.family = null; this.shared.clear(); this.mine.clear();
+    await this.restoreFamily();
+    if (this._familyId) this.listen();
+    else this.emit();
+    return { uid: this.uid };
+  }
+
+  async resetPassword(email) {
+    await this.authLib.sendPasswordResetEmail(this.auth, email.trim());
+  }
+
+  async signOutAccount() {
+    const a = this.authLib;
+    await this.leave();
+    await a.signOut(this.auth);
+    await a.signInAnonymously(this.auth);
+    this.uid = this.auth.currentUser.uid;
     return { uid: this.uid };
   }
 
@@ -185,6 +252,7 @@ class FirebaseStore {
     await batch.commit();
     this._familyId = fid;
     safeSet('fp-family', fid);
+    await this.saveProfile();
     this.listen();
   }
 
@@ -204,6 +272,7 @@ class FirebaseStore {
     await updateDoc(doc(this.db, 'families', fid), patch);
     this._familyId = fid;
     safeSet('fp-family', fid);
+    await this.saveProfile();
     this.listen();
   }
 

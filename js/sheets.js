@@ -50,12 +50,15 @@ function addMenu(c) {
       ${opt('event', '📅', 'Событие', 'Встреча, кружок, врач — в календарь')}
       ${opt('goal', '🎯', 'Цель', 'Личная или семейная, с прогрессом')}
       ${opt('shop', '🛒', 'Покупка', 'В общий список покупок')}
+      ${opt('note', '📝', 'Заметка', 'Объявление или важная информация на доске')}
+      ${opt('poll', '🗳', 'Голосование', 'Спросить мнение семьи')}
     </div>`,
     onAct(act, el) {
       if (act !== 'pick') return;
       const v = el.dataset.v;
       if (v === 'shop') { c.S.tab = 'shop'; c.closeSheet(); c.render(); setTimeout(() => document.querySelector('form[data-form=shop] input')?.focus(), 50); return; }
-      c.openSheet(v === 'goal' ? goal(c, null) : v === 'event' ? event(c, null) : task(c, null));
+      c.openSheet(v === 'goal' ? goal(c, null) : v === 'event' ? event(c, null)
+        : v === 'note' ? c.X.noteSheet(c, null) : v === 'poll' ? c.X.pollSheet(c, null) : task(c, null));
     },
   };
 }
@@ -110,6 +113,7 @@ function task(c, t, preset = {}) {
       ${d.visibility !== 'personal' ? `<div class="group"><div class="field"><label>Кто делает</label>${sel('assigneeId', [['', 'Не назначено'], ...c.members().map((m) => [m.id, m.name])], d.assigneeId)}</div></div>` : ''}
       ${goals().length ? `<div class="group"><div class="field"><label>Шаг к цели</label>${sel('goalId', [['', 'Без цели'], ...goals().map((g) => [g.id, (g.emoji || '🎯') + ' ' + g.title])], d.goalId)}</div></div>` : ''}
       <div class="group"><div class="field"><textarea data-k="notes" placeholder="Заметки">${esc(d.notes)}</textarea></div></div>
+      ${t ? photoBlock(c, t, readOnly) : ''}
       ${t && d.hasDue ? `<button type="button" class="btn ghost" data-act="ics">📅 Добавить будильник в Календарь iPhone</button>
         <div class="hint">Резервный вариант: Календарь iPhone прозвенит сам, даже без интернета (в срок и ещё 4 раза).</div>` : ''}
       ${t && !readOnly ? `<button type="button" class="btn ghost" data-act="toggle-done">${t.done ? 'Вернуть в работу' : '✓ Отметить выполненной'}</button>
@@ -136,6 +140,14 @@ function task(c, t, preset = {}) {
       }
       if (act === 'toggle-done') { await c.toggleTask(t); c.closeSheet(); }
       if (act === 'ics') downloadICS(t);
+      if (act === 'tphoto') {
+        try {
+          const data = await c.X.pickPhoto(1000, 0.7);
+          if (data) { await c.store.updateItem(t.id, { photo: data }); c.toast('Фото прикреплено 📷'); }
+        } catch (e) { c.toast(e.message); }
+      }
+      if (act === 'tphoto-del' && confirm('Убрать фото?')) await c.store.updateItem(t.id, { photo: null });
+      if (act === 'tphoto-view') { const cur = c.S.items.find((i) => i.id === t.id); if (cur?.photo) c.openSheet(c.X.photoSheet(cur.photo, cur.title)); }
     },
     async onSave() {
       const due = d.hasDue ? fromParts(d.date, d.hasTime ? d.time : '00:00') : null;
@@ -348,7 +360,7 @@ const fmtNum = (n) => Number(n || 0).toLocaleString('ru-RU');
 // ------------------------------------------------------------ семья
 
 function family(c) {
-  const st = { editing: null, newName: '', newColor: M.PALETTE[1] };
+  const st = { editing: null, newName: '', newColor: M.PALETTE[1], email: '', pass: '', busy: false };
   return {
     title: 'Семья',
     html: () => {
@@ -369,6 +381,21 @@ function family(c) {
           <div class="hint">Член семьи откроет ссылку в Safari, добавит приложение на экран «Домой» и введёт имя.</div>`
         : `<div class="banner">💡<div>Сейчас демо-режим: всё хранится только на этом устройстве. Приглашения заработают после подключения облака.</div></div>`}
 
+        <div class="section"><h2>Оформление</h2></div>
+        <div class="group">
+          <div class="colors">${c.X.ACCENTS.map((a) => `<button type="button" data-act="accent" data-v="${a.id}" class="${c.X.Theme.accent === a.id ? 'on' : ''}" title="${a.name}" style="background:linear-gradient(135deg,${a.grad[0]},${a.grad[1]})"></button>`).join('')}</div>
+          <div class="field"><label>Режим</label>
+            <div class="seg" style="margin:0;flex:none">${[['auto', 'Авто'], ['light', 'Светлый'], ['dark', 'Тёмный']].map(([m, l]) => `<button type="button" data-act="tmode" data-v="${m}" class="${c.X.Theme.mode === m ? 'on' : ''}" style="padding:6px 10px">${l}</button>`).join('')}</div>
+          </div>
+        </div>
+        <div class="group opts">
+          <button class="opt" data-act="fphoto">🖼 ${fam.photo ? 'Сменить фото семьи' : 'Добавить фото семьи на главный экран'}</button>
+          ${fam.photo ? '<button class="opt" data-act="fphoto-del" style="color:var(--danger)">Убрать фото</button>' : ''}
+        </div>
+        <div class="hint">Цвет и режим сохраняются на этом устройстве, фото семьи видят все.</div>
+
+        ${cloud ? accountBlock(c, st) : ''}
+
         <div class="section"><h2>Будильник и уведомления</h2></div>
         <div class="group opts">
           <button class="opt" data-act="test-alarm">🔊 Проверить звук будильника</button>
@@ -381,7 +408,12 @@ function family(c) {
         <div class="hint" style="margin-top:0">Версия ${esc('1.0')} · ${cloud ? 'облако подключено' : 'демо-режим'}</div>
       </div>`;
     },
-    onInput(el) { if (el.dataset.k === 'mname') st.newName = el.value; if (el.dataset.k === 'memoji') st.newEmoji = el.value; },
+    onInput(el) {
+      if (el.dataset.k === 'mname') st.newName = el.value;
+      if (el.dataset.k === 'memoji') st.newEmoji = el.value;
+      if (el.dataset.k === 'email') st.email = el.value;
+      if (el.dataset.k === 'pass') st.pass = el.value;
+    },
     async onAct(act, el) {
       if (act === 'add-member') { st.editing = 'new'; st.newName = ''; st.newEmoji = ''; st.newColor = M.PALETTE[c.members().length % M.PALETTE.length]; }
       if (act === 'edit-member') { const m = c.member(el.dataset.v); st.editing = m.id; st.newName = m.name; st.newEmoji = m.emoji || ''; st.newColor = m.color; }
@@ -405,6 +437,31 @@ function family(c) {
         Alarm.unlock(); Alarm.test();
       }
       if (act === 'enable-push') await c.enablePush();
+      if (act === 'accent') { c.X.Theme.set(el.dataset.v); c.render(); }
+      if (act === 'tmode') { c.X.Theme.set(null, el.dataset.v); c.render(); }
+      if (act === 'fphoto') {
+        try {
+          const data = await c.X.pickPhoto(1000, 0.72);
+          if (data) { await c.store.updateFamily({ photo: data }); c.toast('Фото семьи обновлено'); }
+        } catch (e) { c.toast(e.message); }
+      }
+      if (act === 'fphoto-del') await c.store.updateFamily({ photo: null });
+      if (act === 'link-email') {
+        if (!st.email.includes('@')) return c.toast('Введите почту');
+        if (st.pass.length < 6) return c.toast('Пароль — минимум 6 символов');
+        try {
+          await c.store.linkEmail(st.email, st.pass);
+          st.pass = '';
+          c.toast('Готово! Теперь можно входить по почте на любом устройстве');
+        } catch (e) { c.toast(authError(e)); }
+      }
+      if (act === 'sign-out') {
+        if (confirm('Выйти из аккаунта на этом устройстве? Данные останутся в аккаунте, войти можно снова по почте.')) {
+          const { uid } = await c.store.signOutAccount();
+          c.S.me = uid;
+          c.closeSheet();
+        }
+      }
       if (act === 'leave') {
         if (confirm(c.store.mode === 'local' ? 'Удалить все данные демо-режима с этого устройства?' : 'Выйти из семьи на этом устройстве? Данные семьи останутся у остальных.')) {
           await c.store.leave(); c.closeSheet();
@@ -412,6 +469,52 @@ function family(c) {
       }
     },
   };
+}
+
+function photoBlock(c, t, readOnly) {
+  const cur = c.S.items.find((i) => i.id === t.id) || t;
+  if (cur.photo) {
+    return `<div class="group" style="padding:10px">
+      <img src="${cur.photo}" alt="" data-act="tphoto-view" style="width:100%;max-height:260px;object-fit:cover;border-radius:10px;display:block;cursor:pointer">
+      ${readOnly ? '' : `<div style="display:flex;gap:8px;margin-top:8px"><button type="button" class="btn ghost" data-act="tphoto">Заменить фото</button><button type="button" class="btn danger" data-act="tphoto-del">Убрать</button></div>`}
+    </div>`;
+  }
+  return readOnly ? '' : `<button type="button" class="btn ghost" data-act="tphoto">📷 Прикрепить фото («вот, сделано!»)</button>`;
+}
+
+function accountBlock(c, st) {
+  const acc = c.store.account;
+  if (!acc.anonymous) {
+    return `<div class="section"><h2>Аккаунт</h2></div>
+      <div class="group opts">
+        <div class="opt">✉️ <span style="flex:1">${esc(acc.email)}</span><span class="tick">✓</span></div>
+        <button class="opt" data-act="sign-out" style="color:var(--danger)">Выйти из аккаунта на этом устройстве</button>
+      </div>
+      <div class="hint">На другом телефоне, iPad или компьютере откройте приложение и нажмите «Войти по почте».</div>`;
+  }
+  return `<div class="section"><h2>Вход по почте</h2></div>
+    <div class="group">
+      <div class="field"><input data-k="email" type="email" autocomplete="username" placeholder="Почта" value="${esc(st.email)}"></div>
+      <div class="field"><input data-k="pass" type="password" autocomplete="new-password" placeholder="Придумайте пароль (от 6 символов)"></div>
+    </div>
+    <button class="btn" data-act="link-email">Сохранить вход по почте</button>
+    <div class="hint">Чтобы пользоваться приложением с нескольких устройств как один человек: на телефоне, iPad и компьютере будут одни и те же личные дела. Все текущие данные сохранятся.</div>`;
+}
+
+export function authError(e) {
+  const code = e?.code || '';
+  const map = {
+    'auth/email-already-in-use': 'Эта почта уже зарегистрирована. Войдите через «Войти по почте».',
+    'auth/credential-already-in-use': 'Эта почта уже зарегистрирована. Войдите через «Войти по почте».',
+    'auth/invalid-email': 'Неверный формат почты',
+    'auth/weak-password': 'Слишком простой пароль — минимум 6 символов',
+    'auth/wrong-password': 'Неверный пароль',
+    'auth/invalid-credential': 'Неверная почта или пароль',
+    'auth/user-not-found': 'Аккаунт с такой почтой не найден',
+    'auth/too-many-requests': 'Слишком много попыток. Подождите немного.',
+    'auth/network-request-failed': 'Нет связи с сервером. Проверьте интернет.',
+  };
+  return map[code] || ('Не получилось: ' + (e?.message || code));
 }
 
 function memberEditor(c, st) {
